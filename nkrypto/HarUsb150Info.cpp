@@ -143,17 +143,21 @@ Nkrypto_Status HarUsb150Info::open() {
         pCapture->quit();
         pCapture = NULL;
     }
+    if (pAlarm) {
+        pAlarm->quit();
+        pAlarm = NULL;
+    }
 
     pCapture = new CaptureThread();
     dprintf("begin capture thrad\n");
     pCapture->start();
 
-    timer = new QTimer(this);
-    timer->setSingleShot(true);
-    timer2 = new QTimer(this);
-    timer2->setSingleShot(true);
-    connect(timer, SIGNAL(timeout()), this, SLOT(setUpTrigger()));
-    connect(timer2, SIGNAL(timeout()), this, SLOT(setDownTrigger()));
+    pAlarm = new AlarmThread();
+    triggerClass = new Trigger();
+    triggerClass->moveToThread(pAlarm);
+    connect(this, SIGNAL(sendTriggerSignal()), triggerClass, SLOT(setUpTrigger()));
+    dprintf("begin alarm thread\n");
+    pAlarm->start();
 
     // set state to open
     State = OPEN;
@@ -175,11 +179,14 @@ Nkrypto_Status HarUsb150Info::close() {
     delete pCapture;
     pCapture = NULL;
 
-    disconnect(timer, SIGNAL(timeout()), this, SLOT(setUpTrigger()));
-    disconnect(timer, SIGNAL(timeout()), this, SLOT(setDownTrigger()));
-    delete timer;
-    delete timer2;
-    timer = timer2 = NULL;
+    disconnect(this, SIGNAL(sendTriggerSignal()), triggerClass, SLOT(setUpTrigger()));
+    delete triggerClass;
+    triggerClass = NULL;
+
+    pAlarm->quit();
+    pAlarm->wait();
+    delete pAlarm;
+    pAlarm = NULL;
 
     // free internal object
     Nkrypto_DeleteInfo();
@@ -300,31 +307,45 @@ Nkrypto_Status HarUsb150Info::getSerialNum(char* recvBuf, int *size) {
     int res = g_info->getSerialNum(recvBuf, size);
 
     if (res == E_OK) {
-        dprintf("get success serial\n");
+        dprintf("begin emit\n");
 
-        if (inuse) {
-            dprintf("we are in use\n");
-        } else {
-            inuse = 1;
-            dprintf("begin set\n");
-            CameraSetIOState(nk::g_hCamera, 0, 1);
-
-            timer->start(100);
-        }
+        //emit xxxxxxx here
+        emit sendTriggerSignal();
     }
     return res;
 }
 
-void HarUsb150Info::setUpTrigger() {
-    dprintf("begin set to zero\n");
-    CameraSetIOState(nk::g_hCamera, 0, 0);
-    timer2->start(100);
+AlarmThread::AlarmThread() {
 }
 
-void HarUsb150Info::setDownTrigger() {
-    dprintf("we set back to inuse 0\n");
+AlarmThread::~AlarmThread(){
+}
+
+void AlarmThread::run() {
+    int ac = 1;
+    char *av = NULL;
+    QCoreApplication qca(ac, &av);
+    qptr = &qca;
+    qptr->exec();
+    delete qptr;
+}
+
+void Trigger::setUpTrigger() {
+    static int inuse = 0;
+
+    if (inuse) {
+        dprintf("in use\n");
+        return;
+    }
+    inuse = 1;
+    dprintf("begin set\n");
+    CameraSetIOState(nk::g_hCamera, 0, 1);
+    QThread::msleep(100);
+    CameraSetIOState(nk::g_hCamera, 0, 0);
+    QThread::msleep(100);
     inuse = 0;
 }
+
 // this is a thread function called when getimage
 void CaptureThread::run()
 {

@@ -5,7 +5,7 @@
 
 #include <QThread>
 #include <QTimer>
-
+#include <QCoreApplication>
 
 #include "BaseInfo.h"
 #include "SnapShot.h"
@@ -19,6 +19,24 @@ class CaptureThread : public QThread {
 protected:
     // maybe we can use a signal to tell thread to stop
     void run() override;
+};
+
+class AlarmThread : public QThread {
+    Q_OBJECT
+private:
+    QCoreApplication *qptr = NULL;
+protected:
+    // we run event loop in it , create coreapplication in it
+public:
+    AlarmThread();
+    ~AlarmThread();
+    void run() override;
+};
+
+class Trigger : public QObject {
+    Q_OBJECT
+public slots:
+    void setUpTrigger();
 };
 
 class HarUsb150Info : public BaseInfo {
@@ -41,9 +59,8 @@ private:
 
     // alarm beep thread pointer
     CaptureThread *pCapture = NULL;
-    QTimer *timer = NULL;
-    QTimer *timer2 = NULL;
-    int inuse = 0;
+    AlarmThread *pAlarm = NULL;
+    Trigger *triggerClass = NULL;
 
     // private funcs
     void setHardTrigger();
@@ -79,10 +96,8 @@ public :
     virtual Nkrypto_Status getDeviceVersion(char *recvBuf, int *size) override;
 
     virtual ~HarUsb150Info() {}
-
-public slots:
-    void setUpTrigger();
-    void setDownTrigger();
+signals:
+    void sendTriggerSignal();
 };
 
 #endif // HARUSB150INFO_H
